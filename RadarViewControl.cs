@@ -1,10 +1,7 @@
-using System;
 using System.ComponentModel;
-using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
-using System.Runtime.InteropServices;
-using System.Windows.Forms;
+
 
 namespace Emre1601;
 /*****************************
@@ -30,9 +27,48 @@ public class RadarViewControl : Control
             _ => ""
         };
     }
+    private Point AngleToScreenPosition(double angleDeg, double distance)
+    {
+        Point center = new Point(ClientSize.Width / 2, ClientSize.Height / 2);
+        float rx = center.X - 40;
+        float ry = center.Y - 40;
+        double angleRad = (angleDeg + RotationOffset) * Math.PI / 180;
+        double lengthFactor = Normalize(distance, 0, RadarRange);
 
+        int endX = center.X + (int)((lengthFactor * rx) * Math.Cos(angleRad));
+        int endY = center.Y - (int)((lengthFactor * ry) * Math.Sin(angleRad));
 
+        return new Point(endX, endY);
+    }
     #endregion
+
+    #region Nested Types
+    public struct LastPositionData
+    {
+        public Point Position { get; set; }
+        public DateTime Timestamp { get; set; }
+        public double Distance { get; set; }
+    }
+    public struct TargetPoint
+    {
+        public required Guid Id { get; init; }
+        public double Distance { get; set; }
+        public float Size { get; set; }
+        public DateTime Timestamp { get; set; }
+        public Color TargetColor { get; set; }
+        public string Label { get; set; }
+        public double Angle { get; set; }
+
+        public override string ToString()
+        {
+            string result = $"Angle: {Angle}°\nDistance: {Distance}\nDate: {Timestamp.ToString("d/MM/yyyy H:mm:ss")}";
+            return result;
+        }
+
+    }
+    public enum UnitTypes { KiloMeter, Meter, CentiMeter }
+    #endregion
+
     #region Properties & Fields
 
     private double _rotationOffset = 0;
@@ -43,7 +79,6 @@ public class RadarViewControl : Control
         set { _rotationOffset = (value % 360 + 360) % 360; }
     } // İleride kullanmak üzere döndürme ofseti ekleyebilirsin
 
-    public enum UnitTypes { KiloMeter, Meter, CentiMeter }
 
 
     [Category("Radar Appearance")]
@@ -58,7 +93,15 @@ public class RadarViewControl : Control
     [Category("Radar Appearance")]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
     public bool IsDrawStatics { get; set; } = true;
+    [Category("Radar Appearance")]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+    public bool IsDrawDegTexts { get; set; } = true;
 
+
+
+    [Category("Radar Appearance")]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+    public Color DefaultTargetPointColor { get; set; } = Color.Red;
 
 
     private UnitTypes _unit = UnitTypes.Meter;
@@ -125,42 +168,20 @@ public class RadarViewControl : Control
     [Category("Radar Data")]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
     public bool AutoClearTargetPoints { get; set; } = true;
-    public struct LastPositionData
-    {
-        public Point Position { get; set; }
-        public DateTime Timestamp { get; set; }
-        public double Distance { get; set; }
-    }
-    public struct TargetPoint
-    {
-        public required Guid Id { get; init; }
-        public double Distance { get; set; }
-        public float Size { get; set; }
-        public DateTime Timestamp { get; set; }
-        public Color TargetColor { get; set; }
-        public string Label { get; set; }
-        public double Angle { get; set; }
-
-        public override string ToString()
-        {
-            string result = $"Angle: {Angle}°\nDistance: {Distance}\nDate: {Timestamp.ToString("d/MM/yyyy H:mm:ss")}";
-            return result;
-        }
-
-    }
 
 
     private List<TargetPoint> _targetPoints = new List<TargetPoint>();
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-    [Category("Radar Data")]
     public List<TargetPoint> TargetPoints
     {
         get => _targetPoints;
         set
         {
             _targetPoints = value ?? new List<TargetPoint>();
+            Invalidate();
         }
     }
+    #endregion
 
     public void ClearTargetPoints() => _targetPoints.Clear();
     public void RemoveTargetPoint(int index)
@@ -179,9 +200,8 @@ public class RadarViewControl : Control
         }
     }
 
-
-    public void AddTargetPoint(double angleDeg, double distance) => AddTargetPoint(angleDeg, distance, DefaultTargetPointSize, RadarLineColor);
-    public void AddTargetPoint(double angleDeg, double distance, float size) => AddTargetPoint(angleDeg, distance, size, RadarLineColor);
+    public void AddTargetPoint(double angleDeg, double distance) => AddTargetPoint(angleDeg, distance, DefaultTargetPointSize, DefaultTargetPointColor);
+    public void AddTargetPoint(double angleDeg, double distance, float size) => AddTargetPoint(angleDeg, distance, size, DefaultTargetPointColor);
     public void AddTargetPoint(double angleDeg, double distance, Color color) => AddTargetPoint(angleDeg, distance, DefaultTargetPointSize, color);
     public void AddTargetPoint(double angleDeg, double distance, float size, Color color)
     {
@@ -196,6 +216,7 @@ public class RadarViewControl : Control
         };
         _targetPoints.Add(newTarget);
     }
+
     public TargetPoint CreateTargetPoint(double angle, double distance)
     {
         return new TargetPoint()
@@ -204,32 +225,17 @@ public class RadarViewControl : Control
             Distance = distance,
             Size = DefaultTargetPointSize,// default boyut
             Timestamp = DateTime.Now,
-            TargetColor = RadarLineColor, // default renk
+            TargetColor = DefaultTargetPointColor, // default renk
             Angle = angle
         };
     }
 
-    private Point AngleToScreenPosition(double angleDeg, double distance)
-    {
-        Point center = new Point(ClientSize.Width / 2, ClientSize.Height / 2);
-        float rx = center.X - 40;
-        float ry = center.Y - 40;
-        double angleRad = (angleDeg + RotationOffset) * Math.PI / 180;
-        double lengthFactor = Normalize(distance, 0, RadarRange);
-
-        int endX = center.X + (int)((lengthFactor * rx) * Math.Cos(angleRad));
-        int endY = center.Y - (int)((lengthFactor * ry) * Math.Sin(angleRad));
-
-        return new Point(endX, endY);
-    }
 
     public List<LastPositionData> LastPositions { get; private set; } = new List<LastPositionData>();
 
 
-    private bool _isMouseIn = false;
-    private Point _mousePos = Point.Empty;
 
-    #endregion
+
 
     public RadarViewControl()
     {
@@ -245,36 +251,35 @@ public class RadarViewControl : Control
 
     #region Mouse Events
 
+    private bool _isMouseIn = false;
+    private Point mousePos = Point.Empty;
+    private TargetPoint? hoverTargetPoint = null;
+
     protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _isMouseIn = true; Invalidate(); }
     protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _isMouseIn = false; Invalidate(); }
-
-    private TargetPoint? hoverTargetPoint = null;
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-        _mousePos = e.Location;
-
+       
+        mousePos = e.Location;
         hoverTargetPoint = null;
 
         foreach (var targetpoint in TargetPoints)
         {
-            //targetpoint.Position
-
-
+            Invalidate();
             PointF TargetPos = AngleToScreenPosition(targetpoint.Angle, targetpoint.Distance);
             TargetPos.X -= targetpoint.Size;
             TargetPos.Y -= targetpoint.Size;
-
+       
             RectangleF targetPointRect = new RectangleF(TargetPos, new SizeF(targetpoint.Size * 2, targetpoint.Size * 2));
-            if (targetPointRect.Contains(_mousePos))
+            if (targetPointRect.Contains(mousePos))
             {
-
                 hoverTargetPoint = targetpoint;
+                
                 break;
             }
-
+           
         }
-
     }
 
     #endregion
@@ -303,7 +308,9 @@ public class RadarViewControl : Control
 
         DrawBackgroundGrid(g, center, rx, ry);
 
-        DrawDegrees(g, center, rx, ry);
+
+        if (IsDrawDegTexts)
+            DrawDegrees(g, center, rx, ry);
 
 
         DrawTargetPoints(g);
@@ -313,7 +320,7 @@ public class RadarViewControl : Control
 
         g.DrawString("Emre1601 Radar UI", new Font("Arial", 8), new SolidBrush(InvertColor(BackColor)), new Point(0, Height - 10));
 
-        //if (_isMouseIn) DrawMouseTooltip(g);
+        if (_isMouseIn && hoverTargetPoint.HasValue) DrawMouseTooltip(g);
     }
 
     private void DrawTargetPoints(Graphics g)
@@ -459,7 +466,7 @@ public class RadarViewControl : Control
         using var font = new Font("Consolas", 8);
         var size = g.MeasureString(posText, font);
 
-        var rect = new RectangleF(_mousePos.X + 15, _mousePos.Y + 15, size.Width + 4, size.Height + 4);
+        var rect = new RectangleF(mousePos.X + 15, mousePos.Y + 15, size.Width + 4, size.Height + 4);
 
         using (var bgBrush = new SolidBrush(Color.FromArgb(180, Color.Black)))
             g.FillRoundedRectangle(bgBrush, rect, new SizeF(8, 8));
