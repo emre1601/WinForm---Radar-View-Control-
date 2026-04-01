@@ -7,7 +7,12 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace Emre1601;
-
+/*****************************
+ * Emre1601 RadarViewControl
+ * 
+ * Geliştirici: Emre1601
+ * GitHub:https://github.com/emre1601
+ * ***************************/
 public class RadarViewControl : Control
 {
 
