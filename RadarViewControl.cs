@@ -1,6 +1,8 @@
+using System;
 using System.ComponentModel;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.IO;
 
 
 namespace Emre1601;
@@ -47,6 +49,7 @@ public class RadarViewControl : Control
     {
         public Point Position { get; set; }
         public DateTime Timestamp { get; set; }
+        public double Angle;
         public double Distance { get; set; }
     }
     public struct TargetPoint
@@ -83,21 +86,23 @@ public class RadarViewControl : Control
 
     [Category("Radar Appearance")]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-    public Color RadarDegTextColor { get; set; } = Color.Gray;
+    public Color RadarDegTextColor { get; set; } = Color.White;
     [Category("Radar Appearance")]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-    public Color RadarColor { get; set; } = Color.Green;
+    public Color RadarColor { get; set; } = Color.Black;
     [Category("Radar Appearance")]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
-    public Color RadarLineColor { get; set; } = Color.Lime;
+    public Color RadarLineColor { get; set; } = Color.Gold;
     [Category("Radar Appearance")]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
     public bool IsDrawStatics { get; set; } = true;
+
+    [Category("Radar Appearance")]
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
+    public bool IsDrawSweepTrail { get; set; } = true;
     [Category("Radar Appearance")]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
     public bool IsDrawDegTexts { get; set; } = true;
-
-
 
     [Category("Radar Appearance")]
     [DesignerSerializationVisibility(DesignerSerializationVisibility.Visible)]
@@ -200,6 +205,9 @@ public class RadarViewControl : Control
         }
     }
 
+
+
+    public void AddTargetPoint() => AddTargetPoint(AngleDeg, RadarCurrentDistance);
     public void AddTargetPoint(double angleDeg, double distance) => AddTargetPoint(angleDeg, distance, DefaultTargetPointSize, DefaultTargetPointColor);
     public void AddTargetPoint(double angleDeg, double distance, float size) => AddTargetPoint(angleDeg, distance, size, DefaultTargetPointColor);
     public void AddTargetPoint(double angleDeg, double distance, Color color) => AddTargetPoint(angleDeg, distance, DefaultTargetPointSize, color);
@@ -216,7 +224,6 @@ public class RadarViewControl : Control
         };
         _targetPoints.Add(newTarget);
     }
-
     public TargetPoint CreateTargetPoint(double angle, double distance)
     {
         return new TargetPoint()
@@ -232,10 +239,37 @@ public class RadarViewControl : Control
 
 
     public List<LastPositionData> LastPositions { get; private set; } = new List<LastPositionData>();
+    private void UpdateLastPositions()
+    {
+        if (ClientSize.Width == 0 || ClientSize.Height == 0) return;
+        Point center = new Point(ClientSize.Width / 2, ClientSize.Height / 2);
+        float rx = center.X - 40;
+        float ry = center.Y - 40;
+        double angleRad = (AngleDeg + RotationOffset) * Math.PI / 180;
+        double lengthFactor = Normalize(RadarCurrentDistance, 0, RadarRange);
+
+        int endX = center.X + (int)((lengthFactor * rx) * Math.Cos(angleRad));
+        int endY = center.Y - (int)((lengthFactor * ry) * Math.Sin(angleRad));
+
+        Point newPoint = new Point(endX, endY);
+
+        // Eğer son nokta ile aynı değilse ekle (gereksiz kalabalıktan kaçınmak için)
+        if (LastPositions.Count == 0 || LastPositions.Last().Position != newPoint)
+        {
+            //Eğer last position silinmeden aynı açıya yeni birşey eklenirse eskisini sil.
+            if (LastPositions.Any(lp => lp.Angle == AngleDeg))
+            {
+                //Aynı açıda eski pozisyonu kaldır
+                LastPositions.RemoveAll(lp => lp.Angle == AngleDeg);
+            }
+
+            LastPositions.Add(new LastPositionData() { Position = newPoint, Distance = RadarCurrentDistance, Timestamp = DateTime.Now, Angle = AngleDeg });
 
 
-
-
+            if (LastPositions.Count > LastPositionCount)
+                LastPositions.RemoveAt(0);
+        }
+    }
 
     public RadarViewControl()
     {
@@ -246,6 +280,9 @@ public class RadarViewControl : Control
                  ControlStyles.SupportsTransparentBackColor |
                  ControlStyles.AllPaintingInWmPaint, true);
         DoubleBuffered = true;
+
+        BackColor = Color.FromArgb(255, 64, 64, 64);
+        ForeColor = Color.White;
 
     }
 
@@ -260,7 +297,7 @@ public class RadarViewControl : Control
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
-       
+
         mousePos = e.Location;
         hoverTargetPoint = null;
 
@@ -270,20 +307,19 @@ public class RadarViewControl : Control
             PointF TargetPos = AngleToScreenPosition(targetpoint.Angle, targetpoint.Distance);
             TargetPos.X -= targetpoint.Size;
             TargetPos.Y -= targetpoint.Size;
-       
+
             RectangleF targetPointRect = new RectangleF(TargetPos, new SizeF(targetpoint.Size * 2, targetpoint.Size * 2));
             if (targetPointRect.Contains(mousePos))
             {
                 hoverTargetPoint = targetpoint;
-                
+
                 break;
             }
-           
+
         }
     }
 
     #endregion
-
 
     protected override void OnPaint(PaintEventArgs e)
     {
@@ -309,13 +345,27 @@ public class RadarViewControl : Control
         DrawBackgroundGrid(g, center, rx, ry);
 
 
+
+
+
+
+
+        DrawNeedleLastPosition(g, center);
+
+
+        if (IsDrawSweepTrail)
+            DrawSweepTrail(g, center);
+
+       // DrawTargetPointConnector(g);
+        DrawTargetPoints(g);
+
+        DrawRadarNeedle(g, center, rx, ry, angleRad, lengthFactor);
+
+
         if (IsDrawDegTexts)
             DrawDegrees(g, center, rx, ry);
 
 
-        DrawTargetPoints(g);
-
-        DrawRadarNeedle(g, center, rx, ry, angleRad, lengthFactor);
         if (hoverTargetPoint.HasValue) DrawMouseTooltip(g);
 
         g.DrawString("Emre1601 Radar UI", new Font("Arial", 8), new SolidBrush(InvertColor(BackColor)), new Point(0, Height - 10));
@@ -338,7 +388,6 @@ public class RadarViewControl : Control
             g.FillEllipse(new SolidBrush(InvertColor(hoverTargetPoint.Value.TargetColor)), targetScreenPosition.X - (hoverTargetPoint.Value.Size / 2), targetScreenPosition.Y - (hoverTargetPoint.Value.Size / 2), hoverTargetPoint.Value.Size, hoverTargetPoint.Value.Size);
         }
     }
-
     private void DrawStatistics(Graphics g)
     {
         using var font = new Font("Consolas", 8);
@@ -347,11 +396,11 @@ public class RadarViewControl : Control
 
         string info = $"Max Distance: {RadarRange:F2} {unitStr}\n" +
                       $"Current Dist: {RadarCurrentDistance:F2} {unitStr}\n" +
-                      $"Angle: {MathF.Abs(Convert.ToSingle(AngleDeg))}";
+                      $"Angle: {MathF.Abs(Convert.ToSingle(AngleDeg))}\n" +
+                      $"Unit: {GetUnitString(Unit)}";
 
         g.DrawString(info, font, brush, 5, 5);
     }
-
     private void DrawBackgroundGrid(Graphics g, Point center, float rx, float ry)
     {
         var rect = new RectangleF(center.X - rx, center.Y - ry, rx * 2, ry * 2);
@@ -359,6 +408,7 @@ public class RadarViewControl : Control
         // Arkaplan Dolgusu (Yarı saydam)
         using (var fillBrush = new SolidBrush(Color.FromArgb(80, RadarColor)))
             g.FillEllipse(fillBrush, rect);
+
 
         // Ana Dış Çerçeve
         using (var mainPen = new Pen(RadarColor, 2))
@@ -376,7 +426,6 @@ public class RadarViewControl : Control
             }
         }
     }
-
     private void DrawDegrees(Graphics g, Point center, float rx, float ry)
     {
         using var font = new Font("Arial", 10, FontStyle.Bold);
@@ -400,28 +449,74 @@ public class RadarViewControl : Control
 
         }
     }
-    // Yardımcı metod:
-    private void UpdateLastPositions()
+
+    private void DrawTargetPointConnector(Graphics g)
     {
-        if (ClientSize.Width == 0 || ClientSize.Height == 0) return;
-        Point center = new Point(ClientSize.Width / 2, ClientSize.Height / 2);
-        float rx = center.X - 40;
-        float ry = center.Y - 40;
-        double angleRad = (AngleDeg + RotationOffset) * Math.PI / 180;
-        double lengthFactor = Normalize(RadarCurrentDistance, 0, RadarRange);
 
-        int endX = center.X + (int)((lengthFactor * rx) * Math.Cos(angleRad));
-        int endY = center.Y - (int)((lengthFactor * ry) * Math.Sin(angleRad));
+        Point getTargetPointPos(TargetPoint tp) => AngleToScreenPosition(tp.Angle, tp.Distance);
 
-        Point newPoint = new Point(endX, endY);
 
-        // Eğer son nokta ile aynı değilse ekle (gereksiz kalabalıktan kaçınmak için)
-        if (LastPositions.Count == 0 || LastPositions.Last().Position != newPoint)
+        using (GraphicsPath gp = new GraphicsPath())
         {
-            LastPositions.Add(new LastPositionData() { Position = newPoint, Distance = RadarCurrentDistance, Timestamp = DateTime.Now });
-            if (LastPositions.Count > LastPositionCount)
-                LastPositions.RemoveAt(0);
+            for (int i = 1; i < TargetPoints.Count; i++)
+            {
+                gp.AddLine(getTargetPointPos(TargetPoints[i - 1]), getTargetPointPos(TargetPoints[i]));
+            }
+            g.DrawPath(new Pen(Color.FromArgb(120, 255, 0, 0), 1), gp);
         }
+    }
+
+    private void DrawNeedleLastPosition(Graphics g, Point center)
+    {
+
+        //Önceki pozisyonları çiz
+        if (ShowLastPositions && LastPositions.Count > 1)
+        {
+            using (GraphicsPath gp = new GraphicsPath())
+            {
+                for (int i = 0; i < LastPositions.Count; i++)
+                {
+                    if (i == 0)
+                        gp.AddLine(new Point(center.X, center.Y), LastPositions[i].Position);
+                    else
+                        gp.AddLine(LastPositions[i - 1].Position, LastPositions[i].Position);
+                }
+
+                g.FillPath(new SolidBrush(Color.FromArgb(80, RadarLineColor)), gp);
+                g.DrawPath(new Pen(Color.FromArgb(200, RadarLineColor), 1), gp);
+            }
+        }
+    }
+
+    private void DrawSweepTrail(Graphics g, Point center)
+    {
+
+        //Önceki pozisyonları çiz
+        if (ShowLastPositions && LastPositions.Count > 1)
+        {
+            using (GraphicsPath gp = new GraphicsPath())
+            {
+
+                for (int i = 1; i < LastPositions.Count; i++)
+                {
+
+                    gp.AddLine(LastPositions[i - 1].Position, LastPositions[i].Position);
+                }
+
+                for (int i = LastPositions.Count - 1; i > 1; i--)
+                {
+                    gp.AddLine(AngleToScreenPosition(LastPositions[i].Angle, RadarRange), AngleToScreenPosition(LastPositions[i - 1].Angle, RadarRange));
+                }
+
+                using (var fillBrush = new SolidBrush(Color.FromArgb(20, DefaultTargetPointColor)))
+                    g.FillPath(fillBrush, gp);
+
+                using (var pen = new Pen(Color.FromArgb(200, DefaultTargetPointColor), 1))
+                    g.DrawPath(pen, gp);
+            }
+        }
+
+
     }
     private void DrawRadarNeedle(Graphics g, Point center, float rx, float ry, double angleRad, double lengthFactor)
     {
@@ -438,28 +533,9 @@ public class RadarViewControl : Control
             pen.StartCap = LineCap.Round;
             pen.EndCap = LineCap.ArrowAnchor;
             g.DrawLine(pen, center.X, center.Y, endX, endY);
-
-
         }
-        if (ShowLastPositions && LastPositions.Count > 1)
-        {
-            GraphicsPath gp = new GraphicsPath();
-            for (int i = 0; i < LastPositions.Count; i++)
-            {
-                if (i == 0)
-                    gp.AddLine(new Point(center.X, center.Y), LastPositions[i].Position);
-                else
-                    gp.AddLine(LastPositions[i - 1].Position, LastPositions[i].Position);
-            }
 
-
-
-            g.FillPath(new SolidBrush(Color.FromArgb(80, RadarLineColor)), gp);
-            g.DrawPath(new Pen(Color.FromArgb(200, RadarLineColor), 1), gp);
-
-        }
     }
-
     private void DrawMouseTooltip(Graphics g)
     {
         string posText = $"{(string.IsNullOrEmpty(hoverTargetPoint.Value.Label) ? hoverTargetPoint.Value : hoverTargetPoint.Value.Label)}";
